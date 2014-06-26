@@ -4,6 +4,7 @@ use namespace::autoclean;
 use Statistics::R;
 use Scalar::Util qw(looks_like_number);
 use feature qw|switch|;
+use Data::Printer;
 
 # Analysis type for MOSAICS fit
 use constant OS => "OS";
@@ -12,7 +13,8 @@ use constant IO => "IO";
 
 has 'r_con' => ( is => 'rw', isa => 'Object');
 has 'r_log' => ( is => 'rw', isa => 'Str');
-has ['chip_file', 'input_file', 'analysis_type', 'file_format', 'chip_bin', 'input_bin'] => (is => 'rw', isa => 'Str');
+has ['chip_file', 'input_file',  'chip_bin', 'input_bin'] => (is => 'rw', isa => 'Str');
+has ['analysis_type', 'file_format'] => (is => 'rw', isa => 'Str');
 has ['fragment_size', 'bin_size' ] => (is => 'rw', isa => 'Int', default => 200);
 has ['map_score', 'gc_score', 'n_score'] => (is => 'rw', isa => 'Str');
 has 'bin_data' => (is => 'rw', isa => 'Str');
@@ -21,11 +23,19 @@ has 'fit_name' => (is => 'rw', isa => 'Str');
 has 'peak_name' => (is => 'rw', isa => 'Str');
 has 'out_loc' => (is => 'rw', isa =>'Str', default => './');
 
+before [qw|chip_file input_file chip_bin input_bin|] => sub {
+	my $self = shift;
+	my $file = shift;
+	if($file){
+		unless(-e $file) { die "Could not locate $file!"; }
+	}
+};
+
 sub BUILD
 {
 	my $self = shift;
 	$self->r_con(Statistics::R->new());
-	$self->r_log("R Connection Initialized");
+	$self->r_log("R Connection Initialized\n");
 	$self->_run_updates();
 	$self->_load_libs();
 }
@@ -36,6 +46,12 @@ sub dump_log
 	return $self->r_log;
 }
 
+sub print_state
+{
+	my $self = shift;
+
+}
+
 ### Sub for constructing a chip Bin
 ### Returns the name of the new chip bin (and overwrites the data memeber)
 ### 	or negative 1 if it fails
@@ -43,11 +59,11 @@ sub make_chip_bin
 {
 	my $self = shift;
 	&_have_chip_input($self);
-	my $const_bin = "constructBins(infile=\"".$self->chip_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\", byChr=FALSE, fragLen=.".$self->fragment_length.", binSize=".$self->bin_size.")";
+	my $const_bin = "constructBins(infile=\"".$self->chip_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\", byChr=FALSE, fragLen=".$self->fragment_size.", binSize=".$self->bin_size.")";
 	if($self->r_con->run($const_bin))
 	{
 		$self->_log_command($const_bin);
-		my $chip_bin = $self->chip_file."_fragL".$self->fragment_length."_bin".$self->bin_size.".txt";
+		my $chip_bin = $self->chip_file."_fragL".$self->fragment_size."_bin".$self->bin_size.".txt";
 		$self->chip_bin($chip_bin);
 		return $chip_bin;
 	} else { return -1; }
@@ -60,11 +76,11 @@ sub make_input_bin
 {
 	my $self = shift;
 	&_have_input_input($self);
-	my $const_bin = "constructBins(infile=\"".$self->input_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\", byChr=FALSE, fragLen=.".$self->fragment_length.", binSize=".$self->bin_size.")";
+	my $const_bin = "constructBins(infile=\"".$self->input_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\", byChr=FALSE, fragLen=".$self->fragment_size.", binSize=".$self->bin_size.")";
 	if($self->r_con->run($const_bin))
 	{
 		$self->_log_command($const_bin);
-		my $input_bin = $self->input_file."_fragL".$self->fragment_length."_bin".$self->bin_size.".txt";
+		my $input_bin = $self->input_file."_fragL".$self->fragment_size."_bin".$self->bin_size.".txt";
 		$self->input_bin($input_bin);
 		return $input_bin;
 	} else { return -1; }
@@ -76,9 +92,10 @@ sub make_chip_wiggle
 	my $self = shift;
 	&_have_chip_input($self);
 	my $wiggle_command = "generateWig( infile=\"".$self->chip_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\")";
-	$self->r_con->run($wiggle_command);
-	$self->_log_command($wiggle_command);
-}
+	if($self->r_con->run($wiggle_command)) {
+		$self->_log_command($wiggle_command);
+	} else { die "Could not generate chip wiggle file!;" }
+} 
 
 ### Generate input wiggle file!
 sub make_input_wiggle
@@ -100,7 +117,7 @@ sub read_bins
 	my $bin_data_name = $1.$self->analysis_type;
 	
 	# Set up strings for appending chosen data
-	my $read_command = "$bin_data_name <- readBins";
+	my $read_command = "$bin_data_name <- readBins(";
 	my $type_string = $self->_readbin_type_string();
 	my $files_string = $self->_readbin_file_string();
 	$read_command .= $type_string.", ".$files_string.")";
@@ -121,7 +138,7 @@ sub fit
 	my ($self, $opts) = @_;
 	&_can_fit($self);
 	my $fit_name = $self->bin_data."FIT";
-	my $fit_command = $fit_name." <- mosasicsFit(".$self->bin_data.", analysisType = \"".$self->analysis_type."\"";
+	my $fit_command = $fit_name." <- mosaicsFit(".$self->bin_data.", analysisType = \"".$self->analysis_type."\"";
 	
 	if($opts and &_validate_fit_opts($opts))
 	{
@@ -149,7 +166,7 @@ sub call_peaks
 {
 	my ($self, $opts) = @_;
 	my $peak_name = $self->bin_data."PEAK";
-	my $peak_command = $peak_name." <- mosasicsPeak(".$self->fit;
+	my $peak_command = $peak_name." <- mosaicsPeak(".$self->fit;
 	
 	if($opts and &_validate_peak_opts($opts))
 	{
@@ -178,12 +195,17 @@ sub export
 	my ($self, $opts) = @_;
 	&_can_export($self);
 	my $type = "bed";
-	my $file_name = $self->peak."Peaks.$type";
+	my $file_name = $self->peak_name."Peaks.$type";
 	if($opts and &_validate_export_opts($opts))
 	{
-
+		if(exists($$opts{'type'})) {
+			$type = $$opts{'type'};
+		}
+		if(exists($$opts{'filename'})) {
+			$file_name = $$opts{'filename'};
+		}
 	}
-	my $export_command = "export(".$self->peak.", type = \"$type\", filename = \"$file_name\")";
+	my $export_command = "export(".$self->peak_name.", type = \"$type\", filename = \"$file_name\")";
 	
 	if($self->r_con->run($export_command)){
 		$self->_log_command($export_command);
@@ -231,7 +253,7 @@ sub _validate_peak_opts
 	for my $key (keys(%$opts))
 	{
 		my $opt_val = $$opts{$key};
-		if($key eq "signalModel" and not($opt_val ~~ qw|1S 2S|)){
+		if($key eq "signalModel" and not($opt_val ~~ ("1S", "2S"))){
 			die "signalModel value: $opt_val is invalid! Either 1S or 2S";
 		}
 		else{
