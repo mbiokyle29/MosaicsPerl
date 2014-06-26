@@ -3,37 +3,37 @@ use Moose;
 use namespace::autoclean;
 use Statistics::R;
 use Scalar::Util qw(looks_like_number);
+use feature qw|switch|;
 
 # Analysis type for MOSAICS fit
 use constant OS => "OS";
 use constant TS => "TS";
 use constant IO => "IO";
 
-has 'r_con' => ( is => 'ro', isa => 'Object');
-has 'r_log' => ( is => 'ro', isa => 'Str');
-has ['chip_file', 'input_file', 'analysis_type', 'file_format', 'out_loc', 'chip_bin', 'input_bin'] => (is => 'rw', isa => 'Str', lazy => 1);
+has 'r_con' => ( is => 'rw', isa => 'Object');
+has 'r_log' => ( is => 'rw', isa => 'Str');
+has ['chip_file', 'input_file', 'analysis_type', 'file_format', 'chip_bin', 'input_bin'] => (is => 'rw', isa => 'Str');
 has ['fragment_size', 'bin_size' ] => (is => 'rw', isa => 'Int', default => 200);
-has ['map_score', 'gc_score', 'n_score'] => (is => 'rw', isa => 'Str', lazy => 1);
-has 'bin_data' => (is => 'rw', isa => 'Str', lazy => 1);
-has 'data_name' => (is => 'rw', isa => 'Str', lazy => 1);
-has 'fit' => (is => 'rw', isa => 'Str', lazy => 1);
-has 'peak' => (is => 'rw', isa => 'Str', lazy => 1);
-
-before 'make_chip_bin'     => \&_have_file('chip', 'constructBins');
-before 'make_input_bin'    => \&_have_file('input', 'constructBins');
-before 'make_chip_wiggle'  => \&_have_file('chip', 'generateWig');
-before 'make_input_wiggle' => \&_have_file('input', 'generateWig');
-before 'read_bins'         => \&_can_read_bins();
-before 'fit'               => \&_can_fit();
-before 'export'            => \&_can_export();
+has ['map_score', 'gc_score', 'n_score'] => (is => 'rw', isa => 'Str');
+has 'bin_data' => (is => 'rw', isa => 'Str');
+has 'data_name' => (is => 'rw', isa => 'Str');
+has 'fit_name' => (is => 'rw', isa => 'Str');
+has 'peak_name' => (is => 'rw', isa => 'Str');
+has 'out_loc' => (is => 'rw', isa =>'Str', default => './');
 
 sub BUILD
 {
 	my $self = shift;
-	$self->r_con = Statistics::R->new();
+	$self->r_con(Statistics::R->new());
 	$self->r_log("R Connection Initialized");
 	$self->_run_updates();
 	$self->_load_libs();
+}
+
+sub dump_log
+{
+	my $self = shift;
+	return $self->r_log;
 }
 
 ### Sub for constructing a chip Bin
@@ -41,12 +41,13 @@ sub BUILD
 ### 	or negative 1 if it fails
 sub make_chip_bin
 {
-	my $self = shift; 
+	my $self = shift;
+	&_have_chip_input($self);
 	my $const_bin = "constructBins(infile=\"".$self->chip_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\", byChr=FALSE, fragLen=.".$self->fragment_length.", binSize=".$self->bin_size.")";
 	if($self->r_con->run($const_bin))
 	{
 		$self->_log_command($const_bin);
-		$chip_bin = $self->chip_file."_fragL".$self->fragment_length."_bin".$self->bin_size.".txt";
+		my $chip_bin = $self->chip_file."_fragL".$self->fragment_length."_bin".$self->bin_size.".txt";
 		$self->chip_bin($chip_bin);
 		return $chip_bin;
 	} else { return -1; }
@@ -57,12 +58,13 @@ sub make_chip_bin
 ### 	or negative 1 if it fails
 sub make_input_bin
 {
-	my $self = shift; 
+	my $self = shift;
+	&_have_input_input($self);
 	my $const_bin = "constructBins(infile=\"".$self->input_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\", byChr=FALSE, fragLen=.".$self->fragment_length.", binSize=".$self->bin_size.")";
 	if($self->r_con->run($const_bin))
 	{
 		$self->_log_command($const_bin);
-		$input_bin = $self->input_file."_fragL".$self->fragment_length."_bin".$self->bin_size.".txt";
+		my $input_bin = $self->input_file."_fragL".$self->fragment_length."_bin".$self->bin_size.".txt";
 		$self->input_bin($input_bin);
 		return $input_bin;
 	} else { return -1; }
@@ -72,7 +74,8 @@ sub make_input_bin
 sub make_chip_wiggle
 {
 	my $self = shift;
-	my $wiggle_command = "generateWig( infile=\"".$self->chip_file."\", fileFormat=\"".$self->in_format."\", outfileLoc=\"".$self->out_loc.")";
+	&_have_chip_input($self);
+	my $wiggle_command = "generateWig( infile=\"".$self->chip_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\")";
 	$self->r_con->run($wiggle_command);
 	$self->_log_command($wiggle_command);
 }
@@ -81,7 +84,8 @@ sub make_chip_wiggle
 sub make_input_wiggle
 {
 	my $self = shift;
-	my $wiggle_command = "generateWig( infile=\"".$self->input_file."\", fileFormat=\"".$self->in_format."\", outfileLoc=\"".$self->out_loc.")";
+	&_have_input_input($self);
+	my $wiggle_command = "generateWig( infile=\"".$self->input_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\")";
 	$self->r_con->run($wiggle_command);
 	$self->_log_command($wiggle_command);
 }
@@ -91,6 +95,7 @@ sub make_input_wiggle
 sub read_bins
 {
 	my $self = shift;
+	&_can_read_bins($self);
 	$self->chip_file =~ m/^([\w]+)\..*$/;
 	my $bin_data_name = $1.$self->analysis_type;
 	
@@ -114,6 +119,7 @@ sub read_bins
 sub fit
 {
 	my ($self, $opts) = @_;
+	&_can_fit($self);
 	my $fit_name = $self->bin_data."FIT";
 	my $fit_command = $fit_name." <- mosasicsFit(".$self->bin_data.", analysisType = \"".$self->analysis_type."\"";
 	
@@ -132,7 +138,7 @@ sub fit
 	$fit_command .= ")";
 	if($self->r_con->run($fit_command)){
 		$self->_log_command($fit_command);
-		$self->fit($fit_name);
+		$self->fit_name($fit_name);
 	}
 }
 
@@ -149,6 +155,7 @@ sub call_peaks
 	{
 		for my $key (keys(%$opts))
 		{
+			my $opt_val = $$opts{$key};
 			if($key eq "signalModel"){
 				$peak_command .= ", signalModel = \"".$opt_val."\"";
 			} else {
@@ -160,7 +167,7 @@ sub call_peaks
 	$peak_command .= ")";
 	if($self->r_con->run($peak_command)){
 		$self->_log_command($peak_command);
-		$self->peak($peak_name);
+		$self->peak_name($peak_name);
 	}
 }
 
@@ -169,6 +176,7 @@ sub call_peaks
 sub export
 {
 	my ($self, $opts) = @_;
+	&_can_export($self);
 	my $type = "bed";
 	my $file_name = $self->peak."Peaks.$type";
 	if($opts and &_validate_export_opts($opts))
@@ -244,7 +252,7 @@ sub _validate_export_opts
 	my @type_values = qw|txt bed gff|;
 	for my $key (keys(%$opts))
 	{
-		my $opt_val = $opts{$key};
+		my $opt_val = $$opts{$key};
 		unless ($key ~~ @export_params) { die "$key is not a parameter for export!"; }
 		if($key eq "type") {
 			unless ($opt_val ~~ @type_values) { die "$opt_val is not a valid file type for export (txt bed gff)"; }
@@ -265,37 +273,35 @@ sub _can_read_bins
 		when(OS) 
 		{
 			# Needs M + GC + N for OS 
-			unless($self->map_score and $self->gc_score and $self->n_score) { 
+			unless($self->map_score and $self->gc_score and $self->n_score) {
 				die "Cannot read bins in OS (one sample) mode without GC+M+N score incorporated!";
 			}
 		}
-		when(TS or IO) {
-			unless($self->input_bin and ) { die "Cannot read bins in two sample mode without input bin set"; }
+		when(TS) {
+			unless($self->input_bin) { die "Cannot read bins in two sample mode without input bin set"; }
+		}
+		when(IO) {
+			unless($self->input_bin) { die "Cannot read bins in io mode without input bin set"; }
 		}
 	}
 }
 
 # Internal validation Methods
 ## Sub for constructing an input Bin
-sub _have_file
+sub _have_chip_input
 {
 	my $self = shift;
-	my $type = shift;
-	my $operation = shift;
+	unless($self->file_format) { die "Cannot perform without a file format set!";              }
+	unless($self->chip_file)   { die "Cannot perform without a chip_file, please initialize!"; }
+}
 
-	unless($self->file_format) { die "Cannot perform $operation without a file format set!"; }
-	if($type eq 'chip')
-	{
-		unless($self->chip_file) {
-			die "Cannot perform $operation without a chip_file, please initialize!";
-		}
-	}
-	elsif($type eq 'input')
-	{
-		unless($self->input_file) {
-			die "Cannot perform $operation an input_file, please initialize!";
-		}
-	}	 
+# Internal validation Methods
+## Sub for constructing an input Bin
+sub _have_input_input
+{
+	my $self = shift;
+	unless($self->file_format) { die "Cannot perform without a file format set!";              }
+	unless($self->input_file)   { die "Cannot perform without a input_file, please initialize!"; }
 }
 
 ## R Library functions ##
@@ -323,7 +329,9 @@ sub _load_libs
 sub _log_command
 {
 	my ($self, $entry) = @_;
-	$self->r_log .= $entry;
+	my $current = $self->r_log;
+	$current .=  $entry."\n";
+	$self->r_log($current);
 }
 
 sub _readbin_type_string
@@ -363,5 +371,8 @@ sub _can_fit
 sub _can_export
 {
 	my $self = shift;
-	unless ($self->peak) { die "Cannot export peaks without a set peak object"; }
+	unless ($self->peak_name) { die "Cannot export peaks without a set peak object"; }
 }
+
+__PACKAGE__->meta->make_immutable;
+1;
