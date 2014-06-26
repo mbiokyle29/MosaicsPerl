@@ -46,12 +46,6 @@ sub dump_log
 	return $self->r_log;
 }
 
-sub print_state
-{
-	my $self = shift;
-
-}
-
 ### Sub for constructing a chip Bin
 ### Returns the name of the new chip bin (and overwrites the data memeber)
 ### 	or negative 1 if it fails
