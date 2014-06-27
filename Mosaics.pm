@@ -1,27 +1,48 @@
 package Mosaics;
-use Moose;
+use Mouse;
 use namespace::autoclean;
 use Statistics::R;
 use Scalar::Util qw(looks_like_number);
 use feature qw|switch|;
-use Data::Printer;
 
 # Analysis type for MOSAICS fit
 use constant OS => "OS";
 use constant TS => "TS";
 use constant IO => "IO";
 
+# R stuff (mostly internal)
 has 'r_con' => ( is => 'rw', isa => 'Object');
 has 'r_log' => ( is => 'rw', isa => 'Str');
+
+# Defaults to IO
+has 'analysis_type'  => (
+	is => 'rw', 
+	isa => 'Str',
+	default => 'IO',
+	lazy => 1
+);
+
+# Defaults to sam
+has 'file_format' => (
+	is => 'rw', 
+	isa => 'Str',
+	default => 'sam',
+	lazy => 1
+);
+
+# Defaults to "./"
+has 'out_loc' => (is => 'rw', isa =>'Str', default => './', lazy => 1);
+
+# BOTH default to 200
+has ['fragment_size', 'bin_size' ] => (is => 'rw', isa => 'Int', lazy => 1, default => 200);
+
+# No defaults
 has ['chip_file', 'input_file',  'chip_bin', 'input_bin'] => (is => 'rw', isa => 'Str');
-has ['analysis_type', 'file_format'] => (is => 'rw', isa => 'Str');
-has ['fragment_size', 'bin_size' ] => (is => 'rw', isa => 'Int', default => 200);
 has ['map_score', 'gc_score', 'n_score'] => (is => 'rw', isa => 'Str');
 has 'bin_data' => (is => 'rw', isa => 'Str');
-has 'data_name' => (is => 'rw', isa => 'Str');
 has 'fit_name' => (is => 'rw', isa => 'Str');
 has 'peak_name' => (is => 'rw', isa => 'Str');
-has 'out_loc' => (is => 'rw', isa =>'Str', default => './');
+
 
 before [qw|chip_file input_file chip_bin input_bin|] => sub {
 	my $self = shift;
@@ -107,13 +128,11 @@ sub read_bins
 {
 	my $self = shift;
 	&_can_read_bins($self);
-	unless ($self->data_name) {
-		$self->chip_bin =~ m/^([\w]+)\..*$/;
-		$self->data_name($1);
-	}
-	
+	$self->chip_bin =~ m/^([\w]+)\..*$/;
+	$self->bin_data($1);
+
 	# Set up strings for appending chosen data
-	my $read_command = $self->data_name." <- readBins(";
+	my $read_command = $self->bin_data." <- readBins(";
 	my $type_string = $self->_readbin_type_string();
 	my $files_string = $self->_readbin_file_string();
 	$read_command .= $type_string.", ".$files_string.")";
@@ -122,7 +141,6 @@ sub read_bins
 	if($self->r_con->run($read_command))
 	{
 		$self->_log_command($read_command);
-		$self->bin_data($self->data_name);
 	} else { die "Could not read bins!"; }
 }
 
