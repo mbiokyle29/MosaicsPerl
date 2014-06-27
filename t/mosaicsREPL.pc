@@ -1,0 +1,11 @@
+$_REPL->load_plugin('Colors');
+$_REPL->load_plugin('Completion');
+$_REPL->load_plugin('Refresh');
+use Mosaics;
+my $mos = Mosaics->new();
+$mos->chip_file('chipToSmall.sam');
+$mos->input_file('inputToSmall.sam');
+$mos->analysis_type('IO');
+$mos->chip_bin('chip.sam_fragL200_bin200.txt');
+$mos->input_bin('input.sam_fragL200_bin200.txt');
+$mos->read_bins();
