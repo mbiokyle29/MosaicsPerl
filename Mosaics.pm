@@ -107,11 +107,13 @@ sub read_bins
 {
 	my $self = shift;
 	&_can_read_bins($self);
-	$self->chip_file =~ m/^([\w]+)\..*$/;
-	my $bin_data_name = $1.$self->analysis_type;
+	unless ($self->data_name) {
+		$self->chip_bin =~ m/^([\w]+)\..*$/;
+		$self->data_name($1);
+	}
 	
 	# Set up strings for appending chosen data
-	my $read_command = "$bin_data_name <- readBins(";
+	my $read_command = $self->data_name." <- readBins(";
 	my $type_string = $self->_readbin_type_string();
 	my $files_string = $self->_readbin_file_string();
 	$read_command .= $type_string.", ".$files_string.")";
@@ -120,7 +122,7 @@ sub read_bins
 	if($self->r_con->run($read_command))
 	{
 		$self->_log_command($read_command);
-		$self->bin_data($bin_data_name);
+		$self->bin_data($self->data_name);
 	} else { die "Could not read bins!"; }
 }
 
