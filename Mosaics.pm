@@ -4,6 +4,7 @@ use namespace::autoclean;
 use Statistics::R;
 use Scalar::Util qw(looks_like_number);
 use feature qw|switch|;
+use File::Slurp;
 
 # Analysis type for MOSAICS fit
 use constant OS => "OS";
@@ -36,7 +37,7 @@ has 'out_loc' => (is => 'rw', isa =>'Str', default => './', lazy => 1);
 # BOTH default to 200
 has ['fragment_size', 'bin_size' ] => (is => 'rw', isa => 'Int', lazy => 1, default => 200);
 
-# No defaults
+# No defaults;
 has ['chip_file', 'input_file',  'chip_bin', 'input_bin'] => (is => 'rw', isa => 'Str');
 has ['map_score', 'gc_score', 'n_score'] => (is => 'rw', isa => 'Str');
 has 'bin_data' => (is => 'rw', isa => 'Str');
@@ -49,6 +50,7 @@ before [qw|chip_file input_file chip_bin input_bin|] => sub {
 	my $file = shift;
 	if($file){
 		unless(-e $file) { die "Could not locate $file!"; }
+		$file =~ s/\-/\_/;
 	}
 };
 
@@ -128,7 +130,7 @@ sub read_bins
 {
 	my $self = shift;
 	&_can_read_bins($self);
-	$self->chip_bin =~ m/^([\w]+)\..*$/;
+	$self->chip_bin =~ m/^([\w-]+)\..*$/;
 	$self->bin_data($1);
 
 	# Set up strings for appending chosen data
@@ -161,16 +163,15 @@ sub fit
 		{
 			my $opt_val = $$opts{$key};
 			$fit_command .= ", ".$key." = ";
-			if($key eq "bgEst") { $fit_command .= "\"".$opt_val."\", "; }
-			else { $fit_command .= $opt_val.", "; }
+			if($key eq "bgEst") { $fit_command .= "\"".$opt_val."\""; }
+			else { $fit_command .= $opt_val; }
 		}
 	}
 
 	$fit_command .= ")";
-	if($self->r_con->run($fit_command)){
-		$self->_log_command($fit_command);
-		$self->fit_name($fit_name);
-	}
+	$self->r_con->run($fit_command);
+	$self->_log_command($fit_command);
+	$self->fit_name($fit_name);
 }
 
 ### Call peaks on the set fit object
@@ -229,8 +230,8 @@ sub export
 ## Validate opts hash for fit
 sub _validate_fit_opts
 {
-	my ($self, $opts) = @_;
-	unless(ref $opts eq ref {}) {die "Opts parameter for fit is not a hashref!"; }
+	my $opts = shift;
+	unless(ref($opts) eq "HASH") {die "Opts parameter for fit is not a hashref!"; }
 
 	my @valid_opts = qw|bgEst meanThres s d truncProb parallel nCore|;
 	my @numeric_opts = qw|meanThres s d truncProb nCore|;
@@ -260,8 +261,8 @@ sub _validate_fit_opts
 ## Validate opts hash for peaks
 sub _validate_peak_opts
 {
-	my ($self, $opts) = @_;
-	unless(ref $opts eq ref {}) {die "Opts parameter for peak is not a hashref!"; }
+	my $opts = shift;
+	unless(ref($opts) eq "HASH") {die "Opts parameter for peak is not a hashref!"; }
 
 	my @valid_opts = qw|signalModel FDR binsize maxgap minsize thres|;
 	for my $key (keys(%$opts))
@@ -282,8 +283,8 @@ sub _validate_peak_opts
 ## Validate opts hash for export
 sub _validate_export_opts
 {
-	my ($self, $opts) = @_;
-	unless(ref $opts eq ref {}) {die "Opts parameter for export is not a hashref!"; }
+	my $opts = shift;
+	unless(ref($opts) eq "HASH") {die "Opts parameter for export is not a hashref!"; }
 	my @export_params = qw|type filename|;
 	my @type_values = qw|txt bed gff|;
 	for my $key (keys(%$opts))
@@ -408,6 +409,42 @@ sub _can_export
 {
 	my $self = shift;
 	unless ($self->peak_name) { die "Cannot export peaks without a set peak object"; }
+}
+
+sub save_state
+{
+	# need to tie up the module instance into a text file
+	# and save the R data...
+	my %save_state =
+	{
+		analysis_type => $self->analysis_type,
+		file_format => $self->file_format,
+		bin_data => $self->bin_data,
+		chip_bin => $self->chip_bin,
+		chip_file => $self->chip_file,
+		fit_name => $self->fit_name,
+		input_bin => $self->input_bin,
+		input_file => $self->input_file,
+		out_loc => $self->out_loc,
+		fragment_size => $self->fragment_size,
+		bin_size => $self->bin_size,
+		map_score => $self->map_score,
+		gc_score => $self->gc_score,
+		n_score => $self->n_score,
+		fit_name => $self->fit_name,
+		peak_name => $self->peak_name
+	};
+	my $set_dir = "setwd(".$self->out_loc.")";
+	my $save_r_command = "save.image(file=\"MosaicsState".localtime(time)/"\")";
+	$self->r_con->run($set_dir);
+	$self->r_con->run($save_r_command);
+	$self->_log_command($set_dir);
+	$self->_log_command($save_r_command);
+	my $log = $self->dump_log;
+	$save_state{'r_log'} = $log;
+	for my $key (%keys(%save_state))
+	{
+	}
 }
 
 __PACKAGE__->meta->make_immutable;
