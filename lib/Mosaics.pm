@@ -3,7 +3,7 @@ use Mouse;
 use namespace::autoclean;
 use Statistics::R;
 use Scalar::Util qw(looks_like_number);
-use feature qw|switch|;
+use feature qw|switch say|;
 use File::Slurp;
 use Data::Printer;
 
@@ -11,6 +11,9 @@ use Data::Printer;
 use constant OS => "OS";
 use constant TS => "TS";
 use constant IO => "IO";
+
+# Required on construction!
+has 'out_loc' => (is => 'rw', isa =>'Str', required => 1);
 
 # R stuff (mostly internal)
 has 'r_con' => ( is => 'rw', isa => 'Object');
@@ -32,9 +35,6 @@ has 'file_format' => (
 	lazy => 1
 );
 
-# Defaults to "./"
-has 'out_loc' => (is => 'rw', isa =>'Str', required => 1);
-
 # BOTH default to 200
 has ['fragment_size', 'bin_size' ] => (is => 'rw', isa => 'Int', lazy => 1, default => 200);
 
@@ -47,17 +47,17 @@ has 'peak_name' => (is => 'rw', isa => 'Str');
 has 'data_name' => (is => 'rw', isa => 'Str');
 
 
+
 around [qw|chip_file input_file chip_bin input_bin|] => sub {
 	my $orig = shift;
 	my $self = shift;
 	my $file = shift;
 	if($file){
-		unless(-e $self->out_loc."/$file") { die "Could not locate $file!"; }
+		unless(-e $self->out_loc."/$file") { $self->_die("Could not locate $file!"); }
 		if($file =~ m/-/)
 		{
-			die "Please fix file so that it does not have dashes, R hates dashes!";
+			$self->_die("Please fix $file so that it does not have dashes, R hates dashes!");
 		}
-
 		return $self->$orig($file);
 	}
 	return $self->$orig();
@@ -86,13 +86,12 @@ sub dump_log
 
 # Sub for constructing a chip bin file
 # Returns the name of the new chip bin (and overwrites the data memeber)
-# 	or negative 1 if it fails
 # requires: chip_file file_format out_loc fragment_size bin_size
 # sets: chip_bin
 sub make_chip_bin
 {
 	my $self = shift;
-	&_have_chip_input($self);
+	$self->_have_chip_input();
 	my $const_bin = "constructBins(infile=\"".$self->chip_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\", byChr=FALSE, fragLen=".$self->fragment_size.", binSize=".$self->bin_size.")";
 	if($self->r_con->run($const_bin))
 	{
@@ -100,12 +99,11 @@ sub make_chip_bin
 		my $chip_bin = $self->chip_file."_fragL".$self->fragment_size."_bin".$self->bin_size.".txt";
 		$self->chip_bin($chip_bin);
 		return $chip_bin;
-	} else { return -1; }
+	} else { $self->_die("Could not make chip bin! with $const_bin"); }
 }
 
 # Sub for constructing an input bin file
 # Returns the name of the new input bin (and overwrites the data memeber)
-# 	or negative 1 if it fails
 # requires: input_file file_format out_loc fragment_size bin_size
 # sets: input_bin
 sub make_input_bin
@@ -119,7 +117,7 @@ sub make_input_bin
 		my $input_bin = $self->input_file."_fragL".$self->fragment_size."_bin".$self->bin_size.".txt";
 		$self->input_bin($input_bin);
 		return $input_bin;
-	} else { return -1; }
+	} else { $self->_die("Could not make input bin! with: $const_bin"); }
 }
 
 # Sub for Generating a wiggle file of the current chip data
@@ -133,7 +131,7 @@ sub make_chip_wiggle
 	my $wiggle_command = "generateWig( infile=\"".$self->chip_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\")";
 	if($self->r_con->run($wiggle_command)) {
 		$self->_log_command($wiggle_command);
-	} else { die "Could not generate chip wiggle file!"; }
+	} else { $self->_die("Could not generate chip wiggle file! w/ $wiggle_command"); }
 } 
 
 # Sub for Generating a wiggle file of the current input data
@@ -147,7 +145,7 @@ sub make_input_wiggle
 	my $wiggle_command = "generateWig( infile=\"".$self->input_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\")";
 	if($self->r_con->run($wiggle_command)) {
 		$self->_log_command($wiggle_command);
-	} else { die "Could not generate input wiggle file!"; }
+	} else { $self->_die("Could not generate input wiggle file! w/ $wiggle_command"); }
 }
 
 # Sub for reading in bin level data
@@ -175,7 +173,7 @@ sub read_bins
 	if($self->r_con->run($read_command))
 	{
 		$self->_log_command($read_command);
-	} else { die "Could not read bins!"; }
+	} else { $self->_die("Could not read bins! w/ $read_command"); }
 }
 
 # Sub for generating a mosaics fit on the current bin data
@@ -266,6 +264,8 @@ sub export
 	
 	if($self->r_con->run($export_command)){
 		$self->_log_command($export_command);
+	} else {
+		die "Could not export peak list!";
 	}
 }
 
@@ -328,6 +328,8 @@ sub load_state
 	my $self = shift;
 	my $state_file = shift;
 }
+
+
 
 ###############################################################################
 # 					Private Methods 										  #
@@ -525,6 +527,18 @@ sub _set_r_dir
 	my $set_dir = "setwd(\"".$dir."\")";
 	$self->r_con->run($set_dir);
 	$self->_log_command($set_dir);
+}
+
+sub _die {
+	my $self = shift;
+	my $message = shift;
+	say "Mosaics instance encountered the following error:";
+	say "$message";
+	say "Saving object state and R data";
+	$self->save_state();
+	say "R LOG:";
+	say $self->dump_log();
+	exit;
 }
 
 __PACKAGE__->meta->make_immutable;
