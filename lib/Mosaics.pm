@@ -5,6 +5,7 @@ use Statistics::R;
 use Scalar::Util qw(looks_like_number);
 use feature qw|switch|;
 use File::Slurp;
+use Data::Printer;
 
 # Analysis type for MOSAICS fit
 use constant OS => "OS";
@@ -32,7 +33,7 @@ has 'file_format' => (
 );
 
 # Defaults to "./"
-has 'out_loc' => (is => 'rw', isa =>'Str', default => './', lazy => 1);
+has 'out_loc' => (is => 'rw', isa =>'Str', required => 1);
 
 # BOTH default to 200
 has ['fragment_size', 'bin_size' ] => (is => 'rw', isa => 'Int', lazy => 1, default => 200);
@@ -43,15 +44,23 @@ has ['map_score', 'gc_score', 'n_score'] => (is => 'rw', isa => 'Str');
 has 'bin_data' => (is => 'rw', isa => 'Str');
 has 'fit_name' => (is => 'rw', isa => 'Str');
 has 'peak_name' => (is => 'rw', isa => 'Str');
+has 'data_name' => (is => 'rw', isa => 'Str');
 
 
-before [qw|chip_file input_file chip_bin input_bin|] => sub {
+around [qw|chip_file input_file chip_bin input_bin|] => sub {
+	my $orig = shift;
 	my $self = shift;
 	my $file = shift;
 	if($file){
-		unless(-e $file) { die "Could not locate $file!"; }
-		$file =~ s/\-/\_/;
+		unless(-e $self->out_loc."/$file") { die "Could not locate $file!"; }
+		if($file =~ m/-/)
+		{
+			die "Please fix file so that it does not have dashes, R hates dashes!";
+		}
+
+		return $self->$orig($file);
 	}
+	return $self->$orig();
 };
 
 sub BUILD
@@ -61,6 +70,7 @@ sub BUILD
 	$self->r_log("R Connection Initialized\n");
 	$self->_run_updates();
 	$self->_load_libs();
+	$self->_set_r_dir($self->out_loc);
 }
 
 sub dump_log
@@ -210,7 +220,7 @@ sub export
 	my ($self, $opts) = @_;
 	&_can_export($self);
 	my $type = "bed";
-	my $file_name = $self->peak_name."Peaks.$type";
+	my $file_name = $self->peak_name."Peaks";
 	if($opts and &_validate_export_opts($opts))
 	{
 		if(exists($$opts{'type'})) {
@@ -220,6 +230,7 @@ sub export
 			$file_name = $$opts{'filename'};
 		}
 	}
+	$file_name .= ".$type";
 	my $export_command = "export(".$self->peak_name.", type = \"$type\", filename = \"$file_name\")";
 	
 	if($self->r_con->run($export_command)){
@@ -303,6 +314,7 @@ sub _validate_export_opts
 sub _can_read_bins
 {
 	my $self = shift;
+	p($self);
 	unless($self->analysis_type) { die "Cannot read bins without analysis_type being set!"; }
 	unless($self->chip_bin)      { die "Cannot read bins without chip_bin file being set!"; }
 	given($self->analysis_type)
@@ -411,40 +423,64 @@ sub _can_export
 	unless ($self->peak_name) { die "Cannot export peaks without a set peak object"; }
 }
 
+sub save_r_image
+{
+	my $self = shift;
+	
+	unless($self->data_name)
+	{
+		$self->data_name("MosaicsRData".$self->bin_data."_".time);
+	}
+	
+	my $save_r_command = "save.image(file=\"".$self->data_name."\")";
+	
+	$self->r_con->run($save_r_command);
+	$self->_log_command($save_r_command);
+}
+
 sub save_state
 {
 	# need to tie up the module instance into a text file
 	# and save the R data...
+	my $self = shift;
 	my %save_state =
+	(
+		analysis_type => ($self->analysis_type || 0),
+		file_format   => ($self->file_format || 0),
+		bin_data      => ($self->bin_data || 0),
+		chip_bin      => ($self->chip_bin || 0),
+		chip_file     => ($self->chip_file || 0),
+		fit_name      => ($self->fit_name || 0),
+		input_bin     => ($self->input_bin || 0),
+		input_file    => ($self->input_file || 0),
+		out_loc       => ($self->out_loc || 0),
+		fragment_size => ($self->fragment_size || 0),
+		bin_size      => ($self->bin_size || 0),
+		map_score     => ($self->map_score || 0),
+		gc_score      => ($self->gc_score || 0),
+		n_score       => ($self->n_score || 0),
+		fit_name      => ($self->fit_name || 0),
+		peak_name     => ($self->peak_name || 0),
+		data_name     => ($self->data_name || 0)
+	);
+	&save_r_image($self);
+	my $state_file = "MosaicsObjSave-".$self->bin_data."_".time;
+
+	for my $key (keys(%save_state))
 	{
-		analysis_type => $self->analysis_type,
-		file_format => $self->file_format,
-		bin_data => $self->bin_data,
-		chip_bin => $self->chip_bin,
-		chip_file => $self->chip_file,
-		fit_name => $self->fit_name,
-		input_bin => $self->input_bin,
-		input_file => $self->input_file,
-		out_loc => $self->out_loc,
-		fragment_size => $self->fragment_size,
-		bin_size => $self->bin_size,
-		map_score => $self->map_score,
-		gc_score => $self->gc_score,
-		n_score => $self->n_score,
-		fit_name => $self->fit_name,
-		peak_name => $self->peak_name
-	};
-	my $set_dir = "setwd(".$self->out_loc.")";
-	my $save_r_command = "save.image(file=\"MosaicsState".localtime(time)/"\")";
-	$self->r_con->run($set_dir);
-	$self->r_con->run($save_r_command);
-	$self->_log_command($set_dir);
-	$self->_log_command($save_r_command);
-	my $log = $self->dump_log;
-	$save_state{'r_log'} = $log;
-	for my $key (%keys(%save_state))
-	{
+		my $line = "$key\t$save_state{$key}\n";
+		append_file($state_file, $line);
 	}
+	return 1;
+}
+
+sub _set_r_dir
+{
+	my $self = shift;
+	my $dir = shift;
+	my $set_dir = "setwd(\"".$dir."\")";
+	$self->r_con->run($set_dir);
+	$self->_log_command($set_dir);
 }
 
 __PACKAGE__->meta->make_immutable;

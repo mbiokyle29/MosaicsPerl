@@ -27,5 +27,5 @@ ok($mosaics->input_bin("input.sam_fragL200_bin200.txt"), 'Manually settign the i
 ok($mosaics->read_bins(), 'reading bins!');
 ok($mosaics->fit(), 'FITTING');
 ok($mosaics->call_peaks(), 'calling peaks');
-ok($mosaics->export(), 'exporting peaks');
+ok($mosaics->export({type => 'txt'}), 'exporting peaks');
 print $mosaics->dump_log;
