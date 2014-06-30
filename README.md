@@ -6,8 +6,8 @@ Perl module for interfacing with the R package MOSAiCS (http://www.stat.wisc.edu
 The Mosaics object is very "stateful", it needs to be properly loaded with data to do what you want it to do. To simplify the use of it, it was made to assume alot. For example, if you run: <code>$mos->call_peaks();</code> 
 The object assumes you want to call peaks based on the MOSAICS fit object stored in <code>$mos->fit_name</code>, it will fail if that param is not set, however, it is automatically set by running <code>$mos->fit();</code>
 
-Many thanks to the Keles Research Group for making and maintaining MOSAiCS 
-Many thakns to the maker of  Statistics::R module! (https://github.com/bricas/statistics-r)
+Many thanks to the Keles Research Group for making and maintaining MOSAiCS
+Many thanks to the maker of  Statistics::R module! (https://github.com/bricas/statistics-r)
 
 MOSAiCS CITATION:
 Chung D, Kuan PF and Keles S (2012). mosaics: MOSAiCS (MOdel-based one and two Sample Analysis and Inference for ChIP-Seq). R package version 1.12.0, http://groups.google.com/group/mosaics_user_group. 
