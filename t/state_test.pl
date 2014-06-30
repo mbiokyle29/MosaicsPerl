@@ -8,7 +8,6 @@ use Test::Simple tests => 6;
 my $mosaics;
 ok($mosaics = Mosaics->new( 
 	out_loc => '/home/kyle/lab/MosaicsPerl/example-data',
-
 ));
 
 ok($mosaics->chip_bin("chip.sam_fragL200_bin200.txt"), 'Manually setting the chip bin file');

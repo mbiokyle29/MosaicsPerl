@@ -73,6 +73,10 @@ sub BUILD
 	$self->_set_r_dir($self->out_loc);
 }
 
+###############################################################################
+# 					Public Methods 										      #
+###############################################################################
+
 sub dump_log
 {
 	my $self = shift;
@@ -237,6 +241,70 @@ sub export
 		$self->_log_command($export_command);
 	}
 }
+
+sub save_r_image
+{
+	my $self = shift;
+	
+	unless($self->data_name)
+	{
+		$self->data_name("MosaicsRData".$self->bin_data."_".time);
+	}
+	
+	my $save_r_command = "save.image(file=\"".$self->data_name."\")";
+	
+	$self->r_con->run($save_r_command);
+	$self->_log_command($save_r_command);
+	return $self->out_loc.$self->data_name;
+}
+
+sub save_state
+{
+	# need to tie up the module instance into a text file
+	# and save the R data...
+	my $self = shift;
+	my %save_state =
+	(
+		out_loc       => ($self->out_loc || 0),
+		analysis_type => ($self->analysis_type || 0),
+		file_format   => ($self->file_format || 0),
+		bin_data      => ($self->bin_data || 0),
+		chip_bin      => ($self->chip_bin || 0),
+		chip_file     => ($self->chip_file || 0),
+		fit_name      => ($self->fit_name || 0),
+		input_bin     => ($self->input_bin || 0),
+		input_file    => ($self->input_file || 0),
+		fragment_size => ($self->fragment_size || 0),
+		bin_size      => ($self->bin_size || 0),
+		map_score     => ($self->map_score || 0),
+		gc_score      => ($self->gc_score || 0),
+		n_score       => ($self->n_score || 0),
+		fit_name      => ($self->fit_name || 0),
+		peak_name     => ($self->peak_name || 0),
+		data_name     => ($self->data_name || 0)
+	);
+	my $r_file = &save_r_image($self);
+	my $state_file = $self->out_loc."MosaicsObjSave-".$self->bin_data."_".time;
+
+	for my $key (keys(%save_state))
+	{
+		my $line = "$key\t$save_state{$key}\n";
+		append_file($state_file, $line);
+	}
+	my $r_line = "RFILE\t$r_file";
+	append_file($state_file, $r_line);
+	return 1;
+}
+
+sub load_state
+{
+	my $self = shift;
+	my $state_file = shift;
+}
+
+###############################################################################
+# 					Private Methods 										  #
+###############################################################################
 
 ## Validate opts hash for fit
 sub _validate_fit_opts
@@ -421,57 +489,6 @@ sub _can_export
 {
 	my $self = shift;
 	unless ($self->peak_name) { die "Cannot export peaks without a set peak object"; }
-}
-
-sub save_r_image
-{
-	my $self = shift;
-	
-	unless($self->data_name)
-	{
-		$self->data_name("MosaicsRData".$self->bin_data."_".time);
-	}
-	
-	my $save_r_command = "save.image(file=\"".$self->data_name."\")";
-	
-	$self->r_con->run($save_r_command);
-	$self->_log_command($save_r_command);
-}
-
-sub save_state
-{
-	# need to tie up the module instance into a text file
-	# and save the R data...
-	my $self = shift;
-	my %save_state =
-	(
-		analysis_type => ($self->analysis_type || 0),
-		file_format   => ($self->file_format || 0),
-		bin_data      => ($self->bin_data || 0),
-		chip_bin      => ($self->chip_bin || 0),
-		chip_file     => ($self->chip_file || 0),
-		fit_name      => ($self->fit_name || 0),
-		input_bin     => ($self->input_bin || 0),
-		input_file    => ($self->input_file || 0),
-		out_loc       => ($self->out_loc || 0),
-		fragment_size => ($self->fragment_size || 0),
-		bin_size      => ($self->bin_size || 0),
-		map_score     => ($self->map_score || 0),
-		gc_score      => ($self->gc_score || 0),
-		n_score       => ($self->n_score || 0),
-		fit_name      => ($self->fit_name || 0),
-		peak_name     => ($self->peak_name || 0),
-		data_name     => ($self->data_name || 0)
-	);
-	&save_r_image($self);
-	my $state_file = "MosaicsObjSave-".$self->bin_data."_".time;
-
-	for my $key (keys(%save_state))
-	{
-		my $line = "$key\t$save_state{$key}\n";
-		append_file($state_file, $line);
-	}
-	return 1;
 }
 
 sub _set_r_dir

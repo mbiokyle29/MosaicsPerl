@@ -10,7 +10,7 @@ my $example_chip = "chipToSmall.sam";
 my $example_input = "inputToSmall.sam";
 
 my $mosaics;
-ok($mosaics = Mosaics->new(), 'created object right');
+ok($mosaics = Mosaics->new(out_loc => "/home/kyle/lab/MosaicsPerl/example-data"), 'created object right');
 ok($mosaics->analysis_type("IO"), "setting analysis type to IO");
 ok($mosaics->chip_file($example_chip), 'Setting example chip..');
 ok($mosaics->input_file($example_input), 'Setting example input..');
