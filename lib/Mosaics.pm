@@ -77,15 +77,18 @@ sub BUILD
 # 					Public Methods 										      #
 ###############################################################################
 
+# Returns a scalar string which holds all the r command run through this instance
 sub dump_log
 {
 	my $self = shift;
 	return $self->r_log;
 }
 
-### Sub for constructing a chip Bin
-### Returns the name of the new chip bin (and overwrites the data memeber)
-### 	or negative 1 if it fails
+# Sub for constructing a chip bin file
+# Returns the name of the new chip bin (and overwrites the data memeber)
+# 	or negative 1 if it fails
+# requires: chip_file file_format out_loc fragment_size bin_size
+# sets: chip_bin
 sub make_chip_bin
 {
 	my $self = shift;
@@ -100,9 +103,11 @@ sub make_chip_bin
 	} else { return -1; }
 }
 
-### Sub for constructing a chip Bin
-### Returns the name of the new input bin (and overwrites the data memeber)
-### 	or negative 1 if it fails
+# Sub for constructing an input bin file
+# Returns the name of the new input bin (and overwrites the data memeber)
+# 	or negative 1 if it fails
+# requires: input_file file_format out_loc fragment_size bin_size
+# sets: input_bin
 sub make_input_bin
 {
 	my $self = shift;
@@ -117,7 +122,10 @@ sub make_input_bin
 	} else { return -1; }
 }
 
-### Generate chip wiggle file!
+# Sub for Generating a wiggle file of the current chip data
+# No return value, dies on failure
+# requires: chip_file file_format out_loc
+# sets: n/a
 sub make_chip_wiggle
 {
 	my $self = shift;
@@ -125,21 +133,29 @@ sub make_chip_wiggle
 	my $wiggle_command = "generateWig( infile=\"".$self->chip_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\")";
 	if($self->r_con->run($wiggle_command)) {
 		$self->_log_command($wiggle_command);
-	} else { die "Could not generate chip wiggle file!;" }
+	} else { die "Could not generate chip wiggle file!"; }
 } 
 
-### Generate input wiggle file!
+# Sub for Generating a wiggle file of the current input data
+# No return value, dies on failure
+# requires: input_file file_format out_loc
+# sets: n/a
 sub make_input_wiggle
 {
 	my $self = shift;
 	&_have_input_input($self);
 	my $wiggle_command = "generateWig( infile=\"".$self->input_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\")";
-	$self->r_con->run($wiggle_command);
-	$self->_log_command($wiggle_command);
+	if($self->r_con->run($wiggle_command)) {
+		$self->_log_command($wiggle_command);
+	} else { die "Could not generate input wiggle file!"; }
 }
 
-### Read in Bins
-### WARNING AUTOMATICALLY USING SET DATA FIELDS! 
+# Sub for reading in bin level data
+# checks for a valid set of bin data depending on analysis type
+# 	most basic is: type -> IO and with chip and input data
+#	see mosaics docs for more
+# requires: varies
+# sets: bin_data
 sub read_bins
 {
 	my $self = shift;
@@ -149,6 +165,8 @@ sub read_bins
 
 	# Set up strings for appending chosen data
 	my $read_command = $self->bin_data." <- readBins(";
+
+	# Helper subs generate the R string from existing data + analysis_type
 	my $type_string = $self->_readbin_type_string();
 	my $files_string = $self->_readbin_file_string();
 	$read_command .= $type_string.", ".$files_string.")";
@@ -160,16 +178,22 @@ sub read_bins
 	} else { die "Could not read bins!"; }
 }
 
-### Make a mosaics fit on the current bin data
-### Extra options can be set via a hash ref
-### WARNING AUTOMATICALLY USING SET DATA FIELDS! 
+# Sub for generating a mosaics fit on the current bin data
+# 	Extra options can be set via a hash ref
+# requires: bin_data analysis
+# sets: fit_name
 sub fit
 {
 	my ($self, $opts) = @_;
+
+	# Validate object state
 	&_can_fit($self);
+
+	# Build template command
 	my $fit_name = $self->bin_data."FIT";
 	my $fit_command = $fit_name." <- mosaicsFit(".$self->bin_data.", analysisType = \"".$self->analysis_type."\"";
 	
+	# Verify and append hash of extra options if exists
 	if($opts and &_validate_fit_opts($opts))
 	{
 		my @numeric_opts = qw|meanThres s d truncProb nCore|;
@@ -182,20 +206,23 @@ sub fit
 		}
 	}
 
+	# Close command string run, and then log
 	$fit_command .= ")";
-	$self->r_con->run($fit_command);
-	$self->_log_command($fit_command);
-	$self->fit_name($fit_name);
+	if( $self->r_con->run($fit_command)){
+		$self->_log_command($fit_command);
+		$self->fit_name($fit_name);
+	} else { die "Could not generate fit!"; }
 }
 
-### Call peaks on the set fit object
-### Extra options can be set via a hash ref
-### WARNING AUTOMATICALLY USING SET DATA FIELDS! 
+# Sub for calling peaks on the set fit object
+# Extra options can be set via a hash ref
+# requires: fit_name
+# sets: peak_name
 sub call_peaks
 {
 	my ($self, $opts) = @_;
 	my $peak_name = $self->bin_data."PEAK";
-	my $peak_command = $peak_name." <- mosaicsPeak(".$self->fit;
+	my $peak_command = $peak_name." <- mosaicsPeak(".$self->fit_name;
 	
 	if($opts and &_validate_peak_opts($opts))
 	{
@@ -214,7 +241,7 @@ sub call_peaks
 	if($self->r_con->run($peak_command)){
 		$self->_log_command($peak_command);
 		$self->peak_name($peak_name);
-	}
+	} else { die "Could not call peaks!"; }
 }
 
 ### Export the current peak list
