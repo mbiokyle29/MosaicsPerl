@@ -7,6 +7,7 @@ The Mosaics object is very "stateful", it needs to be properly loaded with data 
 The object assumes you want to call peaks based on the MOSAICS fit object stored in <code>$mos->fit_name</code>, it will fail if that param is not set, however, it is automatically set by running <code>$mos->fit();</code>
 
 -Many thanks to the Keles Research Group for making and maintaining MOSAiCS
+
 -Many thanks to the maker of  Statistics::R module! (https://github.com/bricas/statistics-r)
 
 MOSAiCS CITATION:
