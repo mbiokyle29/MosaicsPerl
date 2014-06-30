@@ -46,8 +46,6 @@ has 'fit_name' => (is => 'rw', isa => 'Str');
 has 'peak_name' => (is => 'rw', isa => 'Str');
 has 'data_name' => (is => 'rw', isa => 'Str');
 
-
-
 around [qw|chip_file input_file chip_bin input_bin|] => sub {
 	my $orig = shift;
 	my $self = shift;
