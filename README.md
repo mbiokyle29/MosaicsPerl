@@ -16,10 +16,9 @@ Simple Example:
   # Defaults:
   #   analysis_type => IO
   #   file_format => sam
-  #   out_loc => ./
   #   fragment_size => 200
   #   bin_size => 200
-  my $mos = Mosaics->new();
+  my $mos = Mosaics->new(out_loc => "./");
   
   # Load chip data
   $mos->chip_file('myChip.sam');
