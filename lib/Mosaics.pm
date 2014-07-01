@@ -75,7 +75,7 @@ sub BUILD
 # 					Public Methods 										      #
 ###############################################################################
 
-# Returns a scalar string which holds all the r command run through this instance
+# Returns a scalar string which holds all the r commands run through this instance
 sub dump_log
 {
 	my $self = shift;
@@ -107,7 +107,7 @@ sub make_chip_bin
 sub make_input_bin
 {
 	my $self = shift;
-	&_have_input_input($self);
+	$self->_have_input_input();
 	my $const_bin = "constructBins(infile=\"".$self->input_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\", byChr=FALSE, fragLen=".$self->fragment_size.", binSize=".$self->bin_size.")";
 	if($self->r_con->run($const_bin))
 	{
@@ -125,7 +125,7 @@ sub make_input_bin
 sub make_chip_wiggle
 {
 	my $self = shift;
-	&_have_chip_input($self);
+	$self->_have_chip_input();
 	my $wiggle_command = "generateWig( infile=\"".$self->chip_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\")";
 	if($self->r_con->run($wiggle_command)) {
 		$self->_log_command($wiggle_command);
@@ -139,7 +139,7 @@ sub make_chip_wiggle
 sub make_input_wiggle
 {
 	my $self = shift;
-	&_have_input_input($self);
+	$self->_have_input_input();
 	my $wiggle_command = "generateWig( infile=\"".$self->input_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\")";
 	if($self->r_con->run($wiggle_command)) {
 		$self->_log_command($wiggle_command);
@@ -155,7 +155,7 @@ sub make_input_wiggle
 sub read_bins
 {
 	my $self = shift;
-	&_can_read_bins($self);
+	$self->_can_read_bins();
 	$self->chip_bin =~ m/^([\w-]+)\..*$/;
 	$self->bin_data($1);
 
@@ -183,14 +183,14 @@ sub fit
 	my ($self, $opts) = @_;
 
 	# Validate object state
-	&_can_fit($self);
+	$self->_can_fit();
 
 	# Build template command
 	my $fit_name = $self->bin_data."FIT";
 	my $fit_command = $fit_name." <- mosaicsFit(".$self->bin_data.", analysisType = \"".$self->analysis_type."\"";
 	
 	# Verify and append hash of extra options if exists
-	if($opts and &_validate_fit_opts($opts))
+	if($opts and $self->_validate_fit_opts($opts))
 	{
 		my @numeric_opts = qw|meanThres s d truncProb nCore|;
 		for my $key (keys(%$opts))
@@ -220,7 +220,7 @@ sub call_peaks
 	my $peak_name = $self->bin_data."PEAK";
 	my $peak_command = $peak_name." <- mosaicsPeak(".$self->fit_name;
 	
-	if($opts and &_validate_peak_opts($opts))
+	if($opts and $self->_validate_peak_opts($opts))
 	{
 		for my $key (keys(%$opts))
 		{
@@ -248,7 +248,7 @@ sub export
 	&_can_export($self);
 	my $type = "bed";
 	my $file_name = $self->peak_name."Peaks";
-	if($opts and &_validate_export_opts($opts))
+	if($opts and $self->_validate_export_opts($opts))
 	{
 		if(exists($$opts{'type'})) {
 			$type = $$opts{'type'};
@@ -359,8 +359,9 @@ sub load_state
 ## Validate opts hash for fit
 sub _validate_fit_opts
 {
+	my $self = shift;
 	my $opts = shift;
-	unless(ref($opts) eq "HASH") {die "Opts parameter for fit is not a hashref!"; }
+	unless(ref($opts) eq "HASH") { $self->_die("Opts parameter for fit is not a hashref!  $opts"); }
 
 	my @valid_opts = qw|bgEst meanThres s d truncProb parallel nCore|;
 	my @numeric_opts = qw|meanThres s d truncProb nCore|;
@@ -370,18 +371,18 @@ sub _validate_fit_opts
 	for my $key (keys(%$opts))
 	{
 		my $opt_val = $$opts{$key};
-		unless($key ~~ @valid_opts) { die "Invalid option $key in opts hash for mosasicsFit command"; }
+		unless($key ~~ @valid_opts) { $self->_die("Invalid option $key in opts hash for mosasicsFit command"); }
 		
 		if($key eq "bgEst") { 
-			unless($opt_val ~~ @valid_bgEst_values) { die "Invalid bgEst value: $opt_val"; } 
+			unless($opt_val ~~ @valid_bgEst_values) { $self->_die("Invalid bgEst value: $opt_val"); } 
 		}
 		
 		if($key ~~ @numeric_opts) {
-		unless(&looks_like_number($opt_val)) { die "Invalid $key value: $opt_val ! must be numeric"; }
+		unless(&looks_like_number($opt_val)) { $self->_die("Invalid $key value: $opt_val ! must be numeric"); }
 		}
 
 		if($key ~~ @boolean_opts) {
-			unless($opt_val ~~ qw|TRUE FALSE|) { die "Invalid $key value: $opt_val ! must be boolean (TRUE FALSE)"; }
+			unless($opt_val ~~ qw|TRUE FALSE|) { $self->_die("Invalid $key value: $opt_val ! must be boolean (TRUE FALSE)"); }
 		}
 	}
 	return 1;
@@ -390,19 +391,20 @@ sub _validate_fit_opts
 ## Validate opts hash for peaks
 sub _validate_peak_opts
 {
+	my $self = shift;
 	my $opts = shift;
-	unless(ref($opts) eq "HASH") {die "Opts parameter for peak is not a hashref!"; }
+	unless(ref($opts) eq "HASH") { $self->_die("Opts parameter for peak is not a hashref!"); }
 
 	my @valid_opts = qw|signalModel FDR binsize maxgap minsize thres|;
 	for my $key (keys(%$opts))
 	{
 		my $opt_val = $$opts{$key};
 		if($key eq "signalModel" and not($opt_val ~~ ("1S", "2S"))){
-			die "signalModel value: $opt_val is invalid! Either 1S or 2S";
+			$self->_die("signalModel value: $opt_val is invalid! Either 1S or 2S");
 		}
 		else{
 			unless(&looks_like_number($opt_val)) {
-				die "$key value: $opt_val is invalid! Must be numeric";
+				$self->_die("$key value: $opt_val is invalid! Must be numeric");
 			}
 		}
 	}
@@ -412,16 +414,17 @@ sub _validate_peak_opts
 ## Validate opts hash for export
 sub _validate_export_opts
 {
+	my $self = shift;
 	my $opts = shift;
-	unless(ref($opts) eq "HASH") {die "Opts parameter for export is not a hashref!"; }
+	unless(ref($opts) eq "HASH") { $self->_die("Opts parameter for export is not a hashref!"); }
 	my @export_params = qw|type filename|;
 	my @type_values = qw|txt bed gff|;
 	for my $key (keys(%$opts))
 	{
 		my $opt_val = $$opts{$key};
-		unless ($key ~~ @export_params) { die "$key is not a parameter for export!"; }
+		unless ($key ~~ @export_params) { $self->_die("$key is not a parameter for export!"); }
 		if($key eq "type") {
-			unless ($opt_val ~~ @type_values) { die "$opt_val is not a valid file type for export (txt bed gff)"; }
+			unless ($opt_val ~~ @type_values) { $self->_die("$opt_val is not a valid file type for export (txt bed gff)"); }
 		}
 	}
 	return 1;
@@ -432,22 +435,22 @@ sub _validate_export_opts
 sub _can_read_bins
 {
 	my $self = shift;
-	unless($self->analysis_type) { die "Cannot read bins without analysis_type being set!"; }
-	unless($self->chip_bin)      { die "Cannot read bins without chip_bin file being set!"; }
+	unless($self->analysis_type) { $self->_die("Cannot read bins without analysis_type being set!"); }
+	unless($self->chip_bin)      { $self->_die("Cannot read bins without chip_bin file being set!"); }
 	given($self->analysis_type)
 	{
 		when(OS) 
 		{
 			# Needs M + GC + N for OS 
 			unless($self->map_score and $self->gc_score and $self->n_score) {
-				die "Cannot read bins in OS (one sample) mode without GC+M+N score incorporated!";
+				$self->_die("Cannot read bins in OS (one sample) mode without GC+M+N score incorporated!");
 			}
 		}
 		when(TS) {
-			unless($self->input_bin) { die "Cannot read bins in two sample mode without input bin set"; }
+			unless($self->input_bin) { $self->_die("Cannot read bins in two sample mode without input bin set"); }
 		}
 		when(IO) {
-			unless($self->input_bin) { die "Cannot read bins in io mode without input bin set"; }
+			unless($self->input_bin) { $self->_die("Cannot read bins in io mode without input bin set"); }
 		}
 	}
 }
@@ -457,8 +460,8 @@ sub _can_read_bins
 sub _have_chip_input
 {
 	my $self = shift;
-	unless($self->file_format) { die "Cannot perform without a file format set!";              }
-	unless($self->chip_file)   { die "Cannot perform without a chip_file, please initialize!"; }
+	unless($self->file_format) { $self->_die("Cannot perform without a file format set!");              }
+	unless($self->chip_file)   { $self->_die("Cannot perform without a chip_file, please initialize!"); }
 }
 
 # Internal validation Methods
@@ -466,8 +469,8 @@ sub _have_chip_input
 sub _have_input_input
 {
 	my $self = shift;
-	unless($self->file_format) { die "Cannot perform without a file format set!";              }
-	unless($self->input_file)   { die "Cannot perform without a input_file, please initialize!"; }
+	unless($self->file_format)  { $self->_die("Cannot perform without a file format set!");               }
+	unless($self->input_file)   { $self->_die("Cannot perform without a input_file, please initialize!"); }
 }
 
 ## R Library functions ##
@@ -477,7 +480,7 @@ sub _run_updates
 	my $connect = 'source("http://bioconductor.org/biocLite.R")';
 	my $upgrader = 'biocLite()';
 	my @commands = ($connect, $upgrader);
-	$self->r_con->run(@commands);
+	$self->r_con->run(@commands) or $self->_die("Cannot run updates!");
 	$self->_log_command($_) for @commands;
 }
 
@@ -487,7 +490,7 @@ sub _load_libs
 	my $parallel = "library(parallel)";
 	my $mosaics = "library(mosaics)";
 	my @commands = ($parallel, $mosaics);
-	$self->r_con->run(@commands);
+	$self->r_con->run(@commands) or $self->_die("Cannot load R libs");
 	$self->_log_command($_) for @commands;
 }
 
