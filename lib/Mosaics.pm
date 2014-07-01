@@ -207,7 +207,7 @@ sub fit
 	if( $self->r_con->run($fit_command)){
 		$self->_log_command($fit_command);
 		$self->fit_name($fit_name);
-	} else { die "Could not generate fit!"; }
+	} else { $self->_die("Could not generate fit w/ $fit_command"); }
 }
 
 # Sub for calling peaks on the set fit object
@@ -237,7 +237,7 @@ sub call_peaks
 	if($self->r_con->run($peak_command)){
 		$self->_log_command($peak_command);
 		$self->peak_name($peak_name);
-	} else { die "Could not call peaks!"; }
+	} else { $self->_die("Could not call peaks! w/ $peak_command"); }
 }
 
 ### Export the current peak list
@@ -263,7 +263,7 @@ sub export
 	if($self->r_con->run($export_command)){
 		$self->_log_command($export_command);
 	} else {
-		die "Could not export peak list!";
+		$self->_die("Could not export peak list w/ $export_command");
 	}
 }
 
@@ -273,7 +273,7 @@ sub save_r_image
 	
 	unless($self->data_name)
 	{
-		$self->data_name("MosaicsRData".$self->bin_data."_".time);
+		$self->data_name("MosaicsRData_".$self->bin_data."_".time);
 	}
 	
 	my $save_r_command = "save.image(file=\"".$self->data_name."\")";
@@ -281,6 +281,16 @@ sub save_r_image
 	$self->r_con->run($save_r_command);
 	$self->_log_command($save_r_command);
 	return $self->out_loc.$self->data_name;
+}
+
+sub load_r_image
+{
+	my $self = shift;
+	my $image_file = shift;
+	my $load_command = "load(\"$image_file\")";
+	print $self->r_con->run($load_command);
+	$self->_log_command($load_command);
+	#} else { die("Could not load R image file: $image_file w/ $load_command"); }
 }
 
 sub save_state
@@ -308,8 +318,8 @@ sub save_state
 		peak_name     => ($self->peak_name || 0),
 		data_name     => ($self->data_name || 0)
 	);
-	my $r_file = &save_r_image($self);
-	my $state_file = $self->out_loc."MosaicsObjSave-".$self->bin_data."_".time;
+	my $r_file = $self->save_r_image();
+	my $state_file = $self->out_loc."MosaicsObj_".$self->bin_data."_".time;
 
 	for my $key (keys(%save_state))
 	{
@@ -318,16 +328,29 @@ sub save_state
 	}
 	my $r_line = "RFILE\t$r_file";
 	append_file($state_file, $r_line);
-	return 1;
+	return $state_file;
 }
 
 sub load_state
 {
 	my $self = shift;
 	my $state_file = shift;
+	my @states = read_file($state_file);
+	foreach my $state_line (@states)
+	{
+		my ($atter, $value) = split("\t", $state_line);
+		chomp($atter); chomp($value);
+		print "$atter -> $value\n";
+		if($value and ($atter !~ m/^RFILE/))
+		{
+			$self->$atter($value);
+		} elsif ($value and $atter eq "RFILE") {
+			$self->load_r_image($value);
+			$self->_log_command("Loaded State file: $value");
+		}
+	}
+	return 1;
 }
-
-
 
 ###############################################################################
 # 					Private Methods 										  #
@@ -409,7 +432,6 @@ sub _validate_export_opts
 sub _can_read_bins
 {
 	my $self = shift;
-	p($self);
 	unless($self->analysis_type) { die "Cannot read bins without analysis_type being set!"; }
 	unless($self->chip_bin)      { die "Cannot read bins without chip_bin file being set!"; }
 	given($self->analysis_type)
@@ -536,6 +558,8 @@ sub _die {
 	$self->save_state();
 	say "R LOG:";
 	say $self->dump_log();
+	say "Object Dump:";
+	p($self);
 	exit;
 }
 
