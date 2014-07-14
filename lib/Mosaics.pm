@@ -6,6 +6,7 @@ use Scalar::Util qw(looks_like_number);
 use feature qw|switch say|;
 use File::Slurp;
 use Data::Printer;
+use Net::Ping;
 
 # Analysis type for MOSAICS fit
 use constant OS => "OS";
@@ -66,7 +67,10 @@ sub BUILD
 	my $self = shift;
 	$self->r_con(Statistics::R->new());
 	$self->r_log("R Connection Initialized\n");
-	$self->_run_updates();
+
+	# Make sure we are connected before we try to check for updates
+	if(&can_ping){	$self->_run_updates();	} else {warn "bioconductor cannot be reached skipping updates"}
+	
 	$self->_load_libs();
 	$self->_set_r_dir($self->out_loc);
 }
@@ -240,14 +244,17 @@ sub call_peaks
 	} else { $self->_die("Could not call peaks! w/ $peak_command"); }
 }
 
-### Export the current peak list
-### Extra options can be set via a hash ref
+# Sub for exporting the current peak list
+# Defaults to outputting bed files
+# Extra options can be set via a hash ref
+# requires: peak_name 
+# sets: n/a
 sub export
 {
 	my ($self, $opts) = @_;
-	&_can_export($self);
+	$self->_can_export($self);
 	my $type = "bed";
-	my $file_name = $self->peak_name."Peaks";
+	my $file_name = $self->peak_name;
 	if($opts and $self->_validate_export_opts($opts))
 	{
 		if(exists($$opts{'type'})) {
@@ -267,6 +274,8 @@ sub export
 	}
 }
 
+# Sub for saving the current R img to file
+# Default the file name unless data_name is set
 sub save_r_image
 {
 	my $self = shift;
@@ -283,21 +292,36 @@ sub save_r_image
 	return $self->out_loc.$self->data_name;
 }
 
+# Sub for saving the current R img to file
+# Default the file name unless data_name is set
 sub load_r_image
 {
 	my $self = shift;
 	my $image_file = shift;
-	my $load_command = "load(\"$image_file\")";
-	print $self->r_con->run($load_command);
-	$self->_log_command($load_command);
-	#} else { die("Could not load R image file: $image_file w/ $load_command"); }
+	my $load_command;
+
+	# Try kinda hard to find the r image file
+	if(-e $image_file) {
+		$load_command = "load(\"$image_file\")";
+	} elsif (-e $self->out_loc."$image_file") {
+		$load_command = "load(\"".$self->out_loc."$image_file\")";
+	} else { $self->_die("Could not find r image file: $image_file in current dir or set out loc"); }
+
+	# Load the file if found
+	if($self->r_con->run($load_command)) {
+		$self->_log_command($load_command);	
+	} else { $self->_die("Could not load R image file: $image_file w/ $load_command"); }
 }
 
+# Sub for saving the current object state to a config file
+# 	which can be loaded back up with the load_state method
+#	also automatically saves the R image
+# requires: bin_data - for name of output file
 sub save_state
 {
-	# need to tie up the module instance into a text file
-	# and save the R data...
 	my $self = shift;
+
+	# Save all params or zero them
 	my %save_state =
 	(
 		out_loc       => ($self->out_loc || 0),
@@ -318,19 +342,31 @@ sub save_state
 		peak_name     => ($self->peak_name || 0),
 		data_name     => ($self->data_name || 0)
 	);
+
+	# Save R file, returns filename
 	my $r_file = $self->save_r_image();
+	
 	my $state_file = $self->out_loc."MosaicsObj_".$self->bin_data."_".time;
 
+	# Print each key->val pair to file
 	for my $key (keys(%save_state))
 	{
 		my $line = "$key\t$save_state{$key}\n";
 		append_file($state_file, $line);
 	}
+
+	# Add the special R file line at the end
 	my $r_line = "RFILE\t$r_file";
 	append_file($state_file, $r_line);
+
+	# return the name of state file and report it
+	print "Mosaics Object saved too: $state_file \n";
 	return $state_file;
 }
 
+# Sub for loading an object state from a config file
+#	and also loads the R image listed in the config file
+# sets: Whatever is in the config file
 sub load_state
 {
 	my $self = shift;
@@ -442,6 +478,7 @@ sub _can_read_bins
 		when(OS) 
 		{
 			# Needs M + GC + N for OS 
+
 			unless($self->map_score and $self->gc_score and $self->n_score) {
 				$self->_die("Cannot read bins in OS (one sample) mode without GC+M+N score incorporated!");
 			}
@@ -480,7 +517,12 @@ sub _run_updates
 	my $connect = 'source("http://bioconductor.org/biocLite.R")';
 	my $upgrader = 'biocLite()';
 	my @commands = ($connect, $upgrader);
-	$self->r_con->run(@commands) or $self->_die("Cannot run updates!");
+	eval { $self->r_con->run(@commands); };
+	if ($@) 
+	{
+		warn "Update command failed! Probably network connectivity.";
+		return 1;
+	}
 	$self->_log_command($_) for @commands;
 }
 
@@ -540,7 +582,7 @@ sub _can_fit
 sub _can_export
 {
 	my $self = shift;
-	unless ($self->peak_name) { die "Cannot export peaks without a set peak object"; }
+	unless ($self->peak_name) { $self->_die("Cannot export peaks without a set peak object"); }
 }
 
 sub _set_r_dir
@@ -564,6 +606,13 @@ sub _die {
 	say "Object Dump:";
 	p($self);
 	exit;
+}
+
+sub can_ping
+{
+	my $addr = "www.bioconductor.org";
+	my $pinger = Net::Ping->new();
+	say $pinger->ping($addr);
 }
 
 __PACKAGE__->meta->make_immutable;
