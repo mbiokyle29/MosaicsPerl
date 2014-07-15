@@ -1,7 +1,6 @@
 package Binder;
 use Mouse;
 use namespace::autoclean;
-use Data::Printer;
 
 has 'base_string' => (is => 'rw', isa => 'Str', required => 1);
 has 'slot_number' => (is => 'rw', isa => 'Int');
