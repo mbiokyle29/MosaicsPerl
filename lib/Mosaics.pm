@@ -7,6 +7,7 @@ use feature qw|switch say|;
 use File::Slurp;
 use Data::Printer;
 use Net::Ping;
+use Binder;
 
 # Analysis type for MOSAICS fit
 use constant OS => "OS";
@@ -19,6 +20,9 @@ has 'out_loc' => (is => 'rw', isa =>'Str', required => 1);
 # R stuff (mostly internal)
 has 'r_con' => ( is => 'rw', isa => 'Object');
 has 'r_log' => ( is => 'rw', isa => 'Str');
+
+# Binder (internal)
+has 'binder' => (is => 'rw', isa => 'Object');
 
 # Defaults to IO
 has 'analysis_type'  => (
@@ -42,8 +46,8 @@ has ['fragment_size', 'bin_size' ] => (is => 'rw', isa => 'Int', lazy => 1, defa
 # No defaults;
 has ['chip_file', 'input_file',  'chip_bin', 'input_bin'] => (is => 'rw', isa => 'Str');
 has ['map_score', 'gc_score', 'n_score'] => (is => 'rw', isa => 'Str');
-has 'bin_data' => (is => 'rw', isa => 'Str');
-has 'fit_name' => (is => 'rw', isa => 'Str');
+has 'bin_data'  => (is => 'rw', isa => 'Str');
+has 'fit_name'  => (is => 'rw', isa => 'Str');
 has 'peak_name' => (is => 'rw', isa => 'Str');
 has 'data_name' => (is => 'rw', isa => 'Str');
 
@@ -67,6 +71,8 @@ sub BUILD
 	my $self = shift;
 	$self->r_con(Statistics::R->new());
 	$self->r_log("R Connection Initialized\n");
+
+	$self->binder(new Binder(base_string => ""));
 
 	# Make sure we are connected before we try to check for updates
 	if(&can_ping){	$self->_run_updates();	} else {warn "bioconductor cannot be reached skipping updates"}
@@ -94,11 +100,26 @@ sub make_chip_bin
 {
 	my $self = shift;
 	$self->_have_chip_input();
-	my $const_bin = "constructBins(infile=\"".$self->chip_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\", byChr=FALSE, fragLen=".$self->fragment_size.", binSize=".$self->bin_size.")";
+	$self->binder->base_string("constructBins(infile=\"(?)\", fileFormat=\"(?)\", outfileLoc=\"(?)\", byChr=FALSE, fragLen=(?), binSize=(?))");
+	my $const_bin = $self->binder->bind(
+		$self->chip_file, 
+		$self->file_format, 
+		$self->out_loc, 
+		$self->fragment_size, 
+		$self->bin_size
+	);
+	
 	if($self->r_con->run($const_bin))
 	{
 		$self->_log_command($const_bin);
-		my $chip_bin = $self->chip_file."_fragL".$self->fragment_size."_bin".$self->bin_size.".txt";
+		
+		$self->binder->base_string("(?)_fragL(?)_bin(?).txt");
+		my $chip_bin = $self->binder->bind(
+			$self->chip_file, 
+			$self->fragment_size, 
+			$self->bin_size
+		);
+
 		$self->chip_bin($chip_bin);
 		return $chip_bin;
 	} else { $self->_die("Could not make chip bin! with $const_bin"); }
@@ -112,11 +133,28 @@ sub make_input_bin
 {
 	my $self = shift;
 	$self->_have_input_input();
-	my $const_bin = "constructBins(infile=\"".$self->input_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\", byChr=FALSE, fragLen=".$self->fragment_size.", binSize=".$self->bin_size.")";
+
+	# Build the construct bins command
+	$self->binder->base_string("constructBins(infile=\"(?)\", fileFormat=\"(?)\", outfileLoc=\"(?)\", byChr=FALSE, fragLen=(?), binSize=(?))");
+	my $const_bin = $self->binder->bind(
+		$self->input_file, 
+		$self->file_format, 
+		$self->out_loc,
+		$self->fragment_size,
+		$self->bin_size
+	);
+
 	if($self->r_con->run($const_bin))
 	{
 		$self->_log_command($const_bin);
-		my $input_bin = $self->input_file."_fragL".$self->fragment_size."_bin".$self->bin_size.".txt";
+		
+		$self->binder->base_string("(?)_fragL(?)_bin(?).txt");
+		my $input_bin = $self->binder->bind(
+			$self->input_file, 
+			$self->fragment_size, 
+			$self->bin_size
+		);
+		
 		$self->input_bin($input_bin);
 		return $input_bin;
 	} else { $self->_die("Could not make input bin! with: $const_bin"); }
@@ -130,7 +168,15 @@ sub make_chip_wiggle
 {
 	my $self = shift;
 	$self->_have_chip_input();
-	my $wiggle_command = "generateWig( infile=\"".$self->chip_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\")";
+	
+	say "Setting base string";
+	$self->binder->base_string("generateWig( infile=\"(?)\", fileFormat=\"(?)\", outfileLoc=\"(?)\")") or die "Could not set base string?";
+	my $wiggle_command = $self->binder->bind(
+		$self->chip_file,
+		$self->file_format,
+		$self->out_loc
+	);
+	
 	if($self->r_con->run($wiggle_command)) {
 		$self->_log_command($wiggle_command);
 	} else { $self->_die("Could not generate chip wiggle file! w/ $wiggle_command"); }
@@ -144,7 +190,15 @@ sub make_input_wiggle
 {
 	my $self = shift;
 	$self->_have_input_input();
-	my $wiggle_command = "generateWig( infile=\"".$self->input_file."\", fileFormat=\"".$self->file_format."\", outfileLoc=\"".$self->out_loc."\")";
+
+	say "Setting base string";
+	$self->binder->base_string("generateWig( infile=\"(?)\", fileFormat=\"(?)\", outfileLoc=\"(?)\")") or die "Could not set base string?";
+	my $wiggle_command = $self->binder->bind(
+		$self->input_file,
+		$self->file_format,
+		$self->out_loc
+	);
+
 	if($self->r_con->run($wiggle_command)) {
 		$self->_log_command($wiggle_command);
 	} else { $self->_die("Could not generate input wiggle file! w/ $wiggle_command"); }
@@ -265,7 +319,8 @@ sub export
 		}
 	}
 	$file_name .= ".$type";
-	my $export_command = "export(".$self->peak_name.", type = \"$type\", filename = \"$file_name\")";
+	$self->binder->base_string("export((?), type = \"(?)\", filename = \"(?)\")");
+	my $export_command = $self->binder->bind($self->peak_name, $type, $file_name);
 	
 	if($self->r_con->run($export_command)){
 		$self->_log_command($export_command);
@@ -299,7 +354,7 @@ sub load_r_image
 	my $self = shift;
 	my $image_file = shift;
 	my $load_command;
-
+	p($image_file);
 	# Try kinda hard to find the r image file
 	if(-e $image_file) {
 		$load_command = "load(\"$image_file\")";
@@ -308,9 +363,8 @@ sub load_r_image
 	} else { $self->_die("Could not find r image file: $image_file in current dir or set out loc"); }
 
 	# Load the file if found
-	if($self->r_con->run($load_command)) {
-		$self->_log_command($load_command);	
-	} else { $self->_die("Could not load R image file: $image_file w/ $load_command"); }
+	$self->r_con->run($load_command);
+	$self->_log_command($load_command);
 }
 
 # Sub for saving the current object state to a config file
@@ -345,7 +399,6 @@ sub save_state
 
 	# Save R file, returns filename
 	my $r_file = $self->save_r_image();
-	
 	my $state_file = $self->out_loc."MosaicsObj_".$self->bin_data."_".time;
 
 	# Print each key->val pair to file
@@ -477,8 +530,7 @@ sub _can_read_bins
 	{
 		when(OS) 
 		{
-			# Needs M + GC + N for OS 
-
+			# Needs M + GC + N for OS
 			unless($self->map_score and $self->gc_score and $self->n_score) {
 				$self->_die("Cannot read bins in OS (one sample) mode without GC+M+N score incorporated!");
 			}
@@ -605,14 +657,18 @@ sub _die {
 	say $self->dump_log();
 	say "Object Dump:";
 	p($self);
-	exit;
+	die;
 }
 
 sub can_ping
 {
 	my $addr = "www.bioconductor.org";
 	my $pinger = Net::Ping->new();
-	say $pinger->ping($addr);
+	if($pinger->ping($addr)) {
+		return 1;
+	} else {
+		return -1;
+	}
 }
 
 __PACKAGE__->meta->make_immutable;

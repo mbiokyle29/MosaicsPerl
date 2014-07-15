@@ -4,7 +4,7 @@ use strict;
 use lib "/home/kyle/lab/MosaicsPerl/lib/";
 use Mosaics;
 use Test::Simple tests => 18;
-
+use feature qw|say|;
 
 my $example_chip = "chipToSmall.sam";
 my $example_input = "inputToSmall.sam";
@@ -20,8 +20,8 @@ ok($mosaics->input_file() eq $example_input, 'input is set');
 ok($mosaics->dump_log(), "printing log");
 ok($mosaics->make_chip_wiggle(), 'making wiggle');
 ok($mosaics->make_input_wiggle(), 'making wiggle');
-ok($mosaics->make_chip_bin(), 'making bin');
-ok($mosaics->make_input_bin(), 'making bin');
+ok($mosaics->make_chip_bin(), 'making chip bin');
+ok($mosaics->make_input_bin(), 'making input bin');
 ok($mosaics->chip_bin("chip.sam_fragL200_bin200.txt"), 'Manually setting the chip bin file');
 ok($mosaics->input_bin("input.sam_fragL200_bin200.txt"), 'Manually settign the input bin file');
 ok($mosaics->read_bins(), 'reading bins!');
